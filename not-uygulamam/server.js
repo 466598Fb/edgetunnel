@@ -8,13 +8,27 @@ const path = require('path');
 const fs = require('fs');
 
 const PORT = process.env.PORT || 3000;
-const APP_PASSWORD = process.env.APP_PASSWORD || 'changeme';
-const DATA_DIR = process.env.DATA_DIR || '/data';
+const APP_PASSWORD = '1234';
 const SESSION_SECRET = crypto.randomBytes(32).toString('hex');
 
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+function resolveDataDir() {
+  const candidates = [
+    process.env.DATA_DIR,
+    path.join(__dirname, 'data'),
+  ].filter(Boolean);
+  for (const dir of candidates) {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.accessSync(dir, fs.constants.W_OK);
+      return dir;
+    } catch {}
+  }
+  const fallback = path.join(__dirname, 'data');
+  fs.mkdirSync(fallback, { recursive: true });
+  return fallback;
 }
+
+const DATA_DIR = resolveDataDir();
 
 const db = new Database(path.join(DATA_DIR, 'notes.db'));
 db.pragma('journal_mode = WAL');
@@ -35,6 +49,7 @@ const stmts = {
   updateContent: db.prepare("UPDATE notes SET content = ?, updated_at = datetime('now','localtime') WHERE id = ?"),
   updateTitle: db.prepare("UPDATE notes SET title = ?, updated_at = datetime('now','localtime') WHERE id = ?"),
   remove: db.prepare('DELETE FROM notes WHERE id = ?'),
+  search: db.prepare("SELECT id, title, updated_at FROM notes WHERE title LIKE '%' || ? || '%' OR content LIKE '%' || ? || '%' ORDER BY updated_at DESC"),
 };
 
 function makeToken() {
@@ -62,7 +77,7 @@ app.post('/api/login', (req, res) => {
     });
     return res.json({ ok: true });
   }
-  res.status(401).json({ error: 'Yanlış şifre' });
+  res.status(401).json({ error: 'Yanlis sifre' });
 });
 
 app.post('/api/logout', (_req, res) => {
@@ -85,7 +100,7 @@ app.get('/api/notes', authGuard, (_req, res) => {
 
 app.get('/api/notes/:id', authGuard, (req, res) => {
   const note = stmts.getOne.get(req.params.id);
-  if (!note) return res.status(404).json({ error: 'Not bulunamadı' });
+  if (!note) return res.status(404).json({ error: 'Not bulunamadi' });
   res.json(note);
 });
 
@@ -93,6 +108,11 @@ app.post('/api/notes', authGuard, (req, res) => {
   const title = req.body.title || 'Yeni Not';
   const info = stmts.insert.run(title);
   res.json(stmts.getOne.get(info.lastInsertRowid));
+});
+
+app.get('/api/notes/search/:query', authGuard, (req, res) => {
+  const q = req.params.query;
+  res.json(stmts.search.all(q, q));
 });
 
 app.delete('/api/notes/:id', authGuard, (req, res) => {
@@ -129,4 +149,5 @@ wss.on('connection', (ws) => {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Not uygulamasi calisiyor: http://0.0.0.0:${PORT}`);
+  console.log(`Data dizini: ${DATA_DIR}`);
 });
