@@ -1,0 +1,5 @@
+node_modules/
+notes.db
+notes.db-wal
+notes.db-shm
+.env
