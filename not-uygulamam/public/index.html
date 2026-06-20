@@ -28,8 +28,8 @@
   #app{display:none;height:100vh}
   .app-container{display:flex;height:100%}
 
-  .sidebar{width:280px;background:#fff;border-right:1px solid #e0e0e0;display:flex;flex-direction:column;flex-shrink:0}
-  .sidebar-header{padding:16px;border-bottom:1px solid #e0e0e0;display:flex;align-items:center;justify-content:space-between}
+  .sidebar{width:280px;background:#fff;border-right:1px solid #e0e0e0;display:flex;flex-direction:column;flex-shrink:0;height:100vh}
+  .sidebar-header{padding:16px;border-bottom:1px solid #e0e0e0;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
   .sidebar-header h2{font-size:18px;color:#333}
   .sidebar-actions{display:flex;gap:8px}
   .sidebar-actions button{width:36px;height:36px;border:none;border-radius:8px;cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center;transition:background .2s}
@@ -37,14 +37,25 @@
   .btn-new:hover{background:#5a6fd6}
   .btn-logout{background:#f0f0f0;color:#666}
   .btn-logout:hover{background:#e0e0e0}
-  .note-list{flex:1;overflow-y:auto;padding:8px}
+
+  .search-box{padding:8px 12px;border-bottom:1px solid #e0e0e0;flex-shrink:0}
+  .search-box input{width:100%;padding:8px 12px;border:1px solid #e0e0e0;border-radius:6px;font-size:13px;outline:none;background:#f8f8f8;transition:border .2s}
+  .search-box input:focus{border-color:#667eea;background:#fff}
+
+  .note-list{flex:1;overflow-y:auto;padding:8px;min-height:0;-webkit-overflow-scrolling:touch}
+  .note-list::-webkit-scrollbar{width:6px}
+  .note-list::-webkit-scrollbar-track{background:transparent}
+  .note-list::-webkit-scrollbar-thumb{background:#ccc;border-radius:3px}
+  .note-list::-webkit-scrollbar-thumb:hover{background:#aaa}
+  .note-count{padding:4px 12px;font-size:11px;color:#999;flex-shrink:0;border-top:1px solid #f0f0f0;text-align:center}
+
   .note-item{padding:12px;border-radius:8px;cursor:pointer;margin-bottom:4px;transition:background .15s;display:flex;justify-content:space-between;align-items:center}
   .note-item:hover{background:#f5f5f5}
   .note-item.active{background:#eef0ff}
   .note-item-info{flex:1;min-width:0}
   .note-item-title{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .note-item-date{font-size:11px;color:#999;margin-top:2px}
-  .note-item .btn-delete{opacity:0;background:none;border:none;color:#ccc;cursor:pointer;font-size:16px;padding:4px 6px;border-radius:4px;transition:all .15s}
+  .note-item .btn-delete{opacity:0;background:none;border:none;color:#ccc;cursor:pointer;font-size:16px;padding:4px 6px;border-radius:4px;transition:all .15s;flex-shrink:0}
   .note-item:hover .btn-delete{opacity:1}
   .note-item .btn-delete:hover{color:#e74c3c;background:#ffeaea}
 
@@ -62,7 +73,7 @@
   .mobile-header span{font-size:16px;font-weight:600}
 
   @media(max-width:768px){
-    .sidebar{position:fixed;top:0;left:0;bottom:0;width:85%;max-width:320px;z-index:100;transform:translateX(-100%);transition:transform .25s ease;box-shadow:4px 0 20px rgba(0,0,0,.15)}
+    .sidebar{position:fixed;top:0;left:0;bottom:0;width:85%;max-width:320px;z-index:100;transform:translateX(-100%);transition:transform .25s ease;box-shadow:4px 0 20px rgba(0,0,0,.15);height:100%}
     .sidebar.open{transform:translateX(0)}
     .sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:99}
     .sidebar-overlay.show{display:block}
@@ -99,7 +110,11 @@
           <button class="btn-logout" id="btn-logout" title="Cikis">&#x23FB;</button>
         </div>
       </div>
+      <div class="search-box">
+        <input type="text" id="search-input" placeholder="Notlarda ara...">
+      </div>
       <div class="note-list" id="note-list"></div>
+      <div class="note-count" id="note-count"></div>
     </aside>
     <main class="editor-area">
       <div class="mobile-header" id="mobile-header">
@@ -127,9 +142,11 @@
   const loginScreen=$('#login-screen'),appDiv=$('#app'),noteList=$('#note-list');
   const editorSection=$('#editor-section'),noNote=$('#no-note');
   const noteTitle=$('#note-title'),saveStatus=$('#save-status');
+  const searchInput=$('#search-input'),noteCount=$('#note-count');
 
   let currentNoteId=null,notes=[],ws=null,quill=null;
-  let contentDebounce=null,titleDebounce=null,updatingFromRemote=false;
+  let contentDebounce=null,titleDebounce=null,searchDebounce=null,updatingFromRemote=false;
+  let isSearching=false;
 
   async function checkAuth(){
     try{const r=await fetch('/api/check');const d=await r.json();if(d.authed)showApp();}catch{}
@@ -191,6 +208,23 @@
     };
   }
 
+  searchInput.oninput=()=>{
+    clearTimeout(searchDebounce);
+    searchDebounce=setTimeout(()=>{
+      const q=searchInput.value.trim();
+      if(q.length===0){isSearching=false;loadNotes();return;}
+      isSearching=true;
+      doSearch(q);
+    },300);
+  };
+
+  async function doSearch(query){
+    const r=await fetch('/api/notes/search/'+encodeURIComponent(query));
+    const results=await r.json();
+    notes=results;
+    renderList();
+  }
+
   async function loadNotes(){
     const r=await fetch('/api/notes');notes=await r.json();renderList();
   }
@@ -205,6 +239,7 @@
       div.querySelector('.btn-delete').onclick=e=>{e.stopPropagation();deleteNote(n.id);};
       noteList.appendChild(div);
     });
+    noteCount.textContent=notes.length+' not'+(isSearching?' (arama sonucu)':'');
   }
 
   async function selectNote(id){
@@ -220,6 +255,7 @@
   }
 
   $('#btn-new').onclick=async()=>{
+    if(isSearching){searchInput.value='';isSearching=false;}
     const r=await fetch('/api/notes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:'Yeni Not'})});
     const note=await r.json();
     notes.unshift({id:note.id,title:note.title,updated_at:note.updated_at});
